@@ -3,6 +3,16 @@ import torch.nn as nn
 import numpy as np
 
 
+class GaussianNoise(nn.Module):
+
+    def __init__(self, sigma):
+        super(GaussianNoise, self).__init__()
+        self.sigma = sigma
+
+    def forward(self, x):
+        return (x+self.sigma*torch.randn_like(x)).clamp(0, 1)
+
+
 class GaussianFilter(nn.Conv2d):
     def __init__(
             self,

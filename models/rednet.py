@@ -11,7 +11,7 @@ class ResidualEncoder(nn.Module):
         self.bn1 = nn.BatchNorm2d(64)
         self.conv2 = nn.Conv2d(64, 128, 4, 2, 1)
         self.bn2 = nn.BatchNorm2d(128)
-        self.pool = nn.AdaptiveAvgPool2d((1,1))
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
 
     def forward(self, x):
         out1 = F.relu(self.bn1(self.conv1(x)))

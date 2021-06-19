@@ -1,4 +1,4 @@
-__all__ = ["load_configs", "ImageQuality", "save_fig", "assess_img_quality", "History"]
+__all__ = ["load_configs", "ImageQuality", "save_fig", "assess_image_quality", "History"]
 
 import json
 import os
@@ -8,7 +8,7 @@ import math
 import numpy as np
 from collections import namedtuple, OrderedDict
 from functools import reduce
-
+from PIL import Image
 
 ImageQuality = namedtuple("ImageQuality", ["reconstruction_loss", "mse", "psnr", "ssim"])
 
@@ -34,7 +34,25 @@ def save_fig(x, fname, save_folder="./figures"):
     plt.close()
 
 
-def assess_img_quality(x, y):
+def jpg2gif(fout, figure_folder, output_size=(512, 512)):
+    figures = [
+        os.path.join(figure_folder, f)
+        for f in sorted(os.listdir(figure_folder))
+        if f.endswith(".jpg")
+    ]
+    images = list(map(lambda x: Image.open(x).resize(output_size), figures))
+    images[0].save(
+        fout,
+        save_all=True,
+        append_images=images,
+        format="GIF",
+        duration=300,
+        loop=0
+    )
+    return figures
+
+
+def assess_image_quality(x, y):
     """
     assess the image quality via three commonly used indices
     both images are 4-d array with shape of B,C,H,W and already normalized to [0,1]
@@ -72,8 +90,11 @@ def assess_img_quality(x, y):
 
 class History:
 
-    def __init__(self, type):
-        self.type = type
+    def __init__(self, index_type=None):
+        if index_type is not None:
+            self.index_type = index_type
+        else:
+            self.index_type = namedtuple("DefaultIndex", ["loss"])
         self.history_dict = OrderedDict.fromkeys(self.create_keys())
         self._init_values()
 
@@ -83,8 +104,8 @@ class History:
 
     def create_keys(self):
         return reduce(
-            lambda x,y: x+y,
-            map(lambda x: [x+k for k in self.type._fields], ["train_", "test_"]),
+            lambda x, y: x + y,
+            map(lambda x: [x + k for k in self.get_indices()], ["train_", "test_"]),
             []
         )
 
@@ -94,7 +115,7 @@ class History:
             ("test_", test_epoch_dict)
         ]:
             for k, v in d._asdict().items():
-                self.history_dict[prefix+k].append(v)
+                self.history_dict[prefix + k].append(v)
         return self
 
     def get_last_epoch(self):
@@ -102,6 +123,9 @@ class History:
         for k, v in self.history_dict.items():
             last_epoch.append((k, v[-1]))
         return OrderedDict(last_epoch)
+
+    def get_indices(self):
+        return self.index_type._fields
 
     def __repr__(self):
         return repr(self.history_dict)
