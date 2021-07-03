@@ -1,4 +1,4 @@
-__all__ = ["load_configs", "ImageQuality", "save_fig", "assess_image_quality", "History"]
+__all__ = ["load_configs", "ImageQuality", "save_fig", "assess_image_quality", "History", "save_audio"]
 
 import json
 import os
@@ -9,6 +9,7 @@ import numpy as np
 from collections import namedtuple, OrderedDict
 from functools import reduce
 from PIL import Image
+from scipy.io import wavfile
 
 ImageQuality = namedtuple("ImageQuality", ["reconstruction_loss", "mse", "psnr", "ssim"])
 
@@ -20,7 +21,7 @@ def load_configs(fpath="./configs.json"):
     return configs
 
 
-def save_fig(x, fname, save_folder="./figures"):
+def save_fig(x, filename, save_folder="./figures"):
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     b, c, h, w = x.shape
@@ -30,7 +31,7 @@ def save_fig(x, fname, save_folder="./figures"):
     plt.figure(figsize=(5 * nrow, 5 * b // nrow))
     plt.imshow(npimg)
     plt.axis("off")
-    plt.savefig(os.path.join(save_folder, f"{fname}.jpg"), dpi=72)
+    plt.savefig(os.path.join(save_folder, f"{filename}.jpg"), dpi=72)
     plt.close()
 
 
@@ -129,3 +130,14 @@ class History:
 
     def __repr__(self):
         return repr(self.history_dict)
+
+
+def save_audio(x, filename, sampling_rate, save_folder="./audios"):
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+    audios = np.array(x)
+    for i, aud in enumerate(audios):
+        wavfile.write(os.path.join(
+            save_folder,
+            f"{filename}_{i+1}.wav"
+        ), sampling_rate, aud)

@@ -1,6 +1,7 @@
 import os
 import torch
-from utils import History, save_fig
+import torch.nn.functional as F
+from utils import History, save_fig, save_audio
 from tqdm import tqdm
 from collections import OrderedDict
 
@@ -13,11 +14,14 @@ def train(
         optimizer,
         loss_fn,
         device,
-        n_plots,
+        data_type="image",
         preprocessing=None,
+        postprocessing=None,
         additional_eval=None,
+        num_batches_eval=-1,
         index_type=None,
-        save_dir="."
+        save_dir=".",
+        **kwargs
 ):
     history = History(index_type)
     for e in range(epochs):
@@ -25,13 +29,16 @@ def train(
             running_loss = 0
             running_additionals = [0 for _ in range(len(history.get_indices())-1)]
             running_total = 0
-            for i, (x, _) in enumerate(t):
+            for i, (x, y) in enumerate(t):
                 model.train()
                 if preprocessing is not None:
                     x_preprocessed = preprocessing(x.to(device))
                 else:
                     x_preprocessed = x
-                x_hat = model(x_preprocessed.to(device))
+                if hasattr(model, "use_label"):
+                    x_hat = model(x_preprocessed.to(device), y.to(device))
+                else:
+                    x_hat = model(x_preprocessed.to(device))
                 loss = loss_fn(x_hat, x.to(device))
                 optimizer.zero_grad()
                 loss.backward()
@@ -59,15 +66,17 @@ def train(
                     test_loss = 0
                     test_total = 0
                     test_additionals = [0 for _ in range(len(history.get_indices())-1)]
-                    for j, (x, _) in enumerate(testloader):
+                    for j, (x, y) in enumerate(testloader):
                         model.eval()
-                        x, _ = next(iter(testloader))
                         if preprocessing is not None:
                             x_preprocessed = preprocessing(x)
                         else:
                             x_preprocessed = x
                         with torch.no_grad():
-                            x_hat = model(x_preprocessed.to(device))
+                            if hasattr(model, "use_label"):
+                                x_hat = model(x_preprocessed.to(device), y.to(device))
+                            else:
+                                x_hat = model(x_preprocessed.to(device))
                             test_loss += loss_fn(x_hat, x.to(device)).item() * x.size(0)
                             test_total += x.size(0)
                             if additional_eval is not None:
@@ -78,18 +87,45 @@ def train(
                                 for k in range(len(test_additionals)):
                                     test_additionals[k] += additionals[k] * x.size(0)
                         if j == 0:
-                            if hasattr(model, "generate"):
-                                img = model.generate(n_samples=n_plots)
-                            else:
-                                img = torch.sigmoid(x_hat[:n_plots].detach().cpu())
-                            save_fig(
-                                img,
-                                e + 1,
-                                save_folder=os.path.join(
-                                    save_dir,
-                                    "figures",
-                                    model.__module__.split(".")[-1]
-                                ))
+                            if data_type == "audio":
+                                x_hat = model.generate(
+                                    x[:kwargs["n_tracks"]].to(device),
+                                    F.one_hot(
+                                        kwargs["person_id"] * torch.ones(kwargs["n_tracks"]).long().to(device),
+                                        model.num_voices
+                                    ))
+                                if postprocessing is not None:
+                                    audio = postprocessing(x_hat).detach().cpu()
+                                else:
+                                    audio = x_hat.detach().cpu()
+                                save_audio(
+                                    audio,
+                                    e + 1,
+                                    sampling_rate=kwargs["sampling_rate"],
+                                    save_folder=os.path.join(
+                                        save_dir,
+                                        "audios",
+                                        model.__module__.split(".")[-1]
+                                    )
+                                )
+                            elif data_type == "image":
+                                if hasattr(model, "generate"):
+                                    if hasattr(kwargs, "occlude"):
+                                        img = model.generate(x[:kwargs["n_plots"], :, :kwargs["occlude"], :].to(device))
+                                    else:
+                                        img = model.generate(n_samples=kwargs["n_plots"])
+                                else:
+                                    img = torch.sigmoid(x_hat[:kwargs["n_plots"]].detach().cpu())
+                                save_fig(
+                                    img,
+                                    e + 1,
+                                    save_folder=os.path.join(
+                                        save_dir,
+                                        "figures",
+                                        model.__module__.split(".")[-1]
+                                    ))
+                        elif num_batches_eval > 0 and j == num_batches_eval - 1:
+                            break
                     train_epoch_dict = history.index_type(*list(
                         map(
                             lambda x: x / running_total,

@@ -46,7 +46,3 @@ class GaussianFilter(nn.Conv2d):
         with torch.no_grad():
             out = self.forward(x)
         return out
-
-
-if __name__ == "__main__":
-    print(GaussianFilter(3, 3, 1, 1).weight)
