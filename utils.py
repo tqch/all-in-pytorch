@@ -1,15 +1,15 @@
-__all__ = ["load_configs", "ImageQuality", "save_fig", "assess_image_quality", "History", "save_audio"]
-
 import json
 import os
 import matplotlib.pyplot as plt
 from torchvision.utils import make_grid
 import math
+import torch
 import numpy as np
 from collections import namedtuple, OrderedDict
 from functools import reduce
 from PIL import Image
 from scipy.io import wavfile
+from torch.distributions import Categorical
 
 ImageQuality = namedtuple("ImageQuality", ["reconstruction_loss", "mse", "psnr", "ssim"])
 
@@ -141,3 +141,42 @@ def save_audio(x, filename, sampling_rate, save_folder="./audios"):
             save_folder,
             f"{filename}_{i+1}.wav"
         ), sampling_rate, aud)
+
+
+class NucleusSampler:
+    """
+    provides a method proposed in the nucleus sampling paper:
+    THE CURIOUS CASE OF NEURAL TEXT DeGENERATION
+    https://arxiv.org/pdf/1904.09751.pdf
+    assume the shape of probs is in the form of (N, C, D1, D2, ...)
+    """
+
+    def __init__(self, temperature=1.0, threshold=0.9):
+        assert 0 <= threshold <= 1, "p must be within [0,1]!"
+        self.temperature = temperature
+        self.threshold = threshold
+
+    def sample(self, probs=None, logits=None):
+        assert not ((probs is None) and (logits is None)), "At least one of arguments should be specified!"
+        if 0 < self.threshold < 1:
+            if probs is None:
+                probs = torch.softmax(logits / self.temperature, dim=1)
+            ranks = probs.argsort(dim=1, descending=True)
+            ranked_probs = probs.gather(dim=1, index=ranks)
+            inv_ranks = ranks.argsort(dim=1)
+            cpf = torch.cumsum(ranked_probs, dim=1)  # culmulative probability function
+            least_gtr_p = ((cpf - 2) * (cpf >= self.threshold)).min(dim=1)[0] + 2
+            mask = torch.logical_or(
+                cpf <= least_gtr_p.unsqueeze(1),
+                torch.isclose(cpf, least_gtr_p.unsqueeze(1))  # in case there is any rounding error
+            ).int().gather(1, inv_ranks)
+            top_p = probs * mask  # top-p vocabulary
+            if top_p.ndim > 2:
+                top_p = top_p.permute(*([0, ] + [i for i in range(2, top_p.ndim)] + [1, ]))
+            return Categorical(probs=top_p).sample()
+        elif self.threshold == 0:
+            # greedy search
+            return probs.max(dim=1)[1]
+        else:
+            # temperature sampling
+            return Categorical(logits=logits / self.temperature).sample()

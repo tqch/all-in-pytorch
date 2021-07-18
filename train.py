@@ -14,6 +14,7 @@ def train(
         optimizer,
         loss_fn,
         device,
+        scheduler=None,
         data_type="image",
         preprocessing=None,
         postprocessing=None,
@@ -74,7 +75,10 @@ def train(
                             x_preprocessed = x
                         with torch.no_grad():
                             if hasattr(model, "use_label"):
-                                x_hat = model(x_preprocessed.to(device), y.to(device))
+                                x_hat = model(
+                                    x_preprocessed.to(device),
+                                    F.pad(y.to(device), (0, kwargs["num_persons"]-y.size(1)))
+                                )
                             else:
                                 x_hat = model(x_preprocessed.to(device))
                             test_loss += loss_fn(x_hat, x.to(device)).item() * x.size(0)
@@ -89,11 +93,12 @@ def train(
                         if j == 0:
                             if data_type == "audio":
                                 x_hat = model.generate(
-                                    x[:kwargs["n_tracks"]].to(device),
-                                    F.one_hot(
-                                        kwargs["person_id"] * torch.ones(kwargs["n_tracks"]).long().to(device),
-                                        model.num_voices
-                                    ))
+                                    x[:kwargs["n_tracks"], :kwargs["start_length"]].to(device),
+                                    F.one_hot(torch.LongTensor([kwargs["person_id"]]),
+                                              kwargs["num_persons"]).repeat(kwargs["n_tracks"], 1).to(device)
+                                    if hasattr(model, "use_label") else None,
+                                    generate_length=0 if hasattr(model, "use_label") else kwargs["generate_length"]
+                                )
                                 if postprocessing is not None:
                                     audio = postprocessing(x_hat).detach().cpu()
                                 else:
@@ -138,3 +143,5 @@ def train(
                         )))
                     history.update_history(train_epoch_dict, test_epoch_dict)
                     t.set_postfix(history.get_last_epoch())
+                    if scheduler is not None:
+                        scheduler.step()
